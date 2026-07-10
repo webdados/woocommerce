@@ -710,7 +710,6 @@ jQuery( function ( $ ) {
 				) {
 					wc_meta_boxes_product_variations_ajax.save_changes();
 				} else {
-					need_update.removeClass( 'variation-needs-update' );
 					return false;
 				}
 			}
@@ -1650,11 +1649,16 @@ jQuery( function ( $ ) {
 			var selected = parseInt( $( this ).val(), 10 ),
 				wrapper = $( '#variable_product_options' ).find(
 					'.woocommerce_variations'
-				);
+				),
+				current_page = parseInt( wrapper.attr( 'data-page' ), 10 ) || 1;
 
 			$( '.variations-pagenav .page-selector' ).val( selected );
 
-			wc_meta_boxes_product_variations_ajax.check_for_changes();
+			if ( ! wc_meta_boxes_product_variations_ajax.check_for_changes() ) {
+				$( '.variations-pagenav .page-selector' ).val( current_page );
+				return;
+			}
+
 			wc_meta_boxes_product_variations_pagenav.change_classes(
 				selected,
 				parseInt( wrapper.attr( 'data-total_pages' ), 10 )

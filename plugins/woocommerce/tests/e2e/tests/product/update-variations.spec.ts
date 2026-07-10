@@ -17,6 +17,7 @@ const {
 	productAttributes,
 	sampleVariations,
 	createVariations,
+	generateVariationsFromAttributes,
 } = utils;
 const variationOnePrice = '9.99';
 const variationTwoPrice = '11.99';
@@ -34,8 +35,36 @@ let productId_indivEdit: number,
 	productId_manageStock: number,
 	productId_variationDefaults: number,
 	productId_removeVariation: number,
+	productId_paginationCancel: number,
 	defaultVariation,
 	variationIds_indivEdit: number[];
+
+const paginatedProductAttributes = [
+	{
+		name: 'Colour',
+		visible: true,
+		variation: true,
+		options: [ 'Red', 'Green', 'Blue', 'Black' ],
+	},
+	{
+		name: 'Size',
+		visible: true,
+		variation: true,
+		options: [ 'Small', 'Medium', 'Large', 'XL' ],
+	},
+];
+
+function buildVariationsFromAttributes(
+	attributes: typeof paginatedProductAttributes
+) {
+	return generateVariationsFromAttributes( attributes ).map( ( values ) => ( {
+		regular_price: '9.99',
+		attributes: values.map( ( option, index ) => ( {
+			name: attributes[ index ].name,
+			option,
+		} ) ),
+	} ) );
+}
 
 test.describe( 'Update variations', { tag: tags.GUTENBERG }, () => {
 	test.use( { storageState: ADMIN_STATE_PATH } );
@@ -93,6 +122,17 @@ test.describe( 'Update variations', { tag: tags.GUTENBERG }, () => {
 			await createVariations(
 				productId_removeVariation,
 				sampleVariations.slice( -1 )
+			);
+		} );
+
+		await test.step( 'Create variable product for pagination cancel test', async () => {
+			productId_paginationCancel = await createVariableProduct(
+				paginatedProductAttributes
+			);
+
+			await createVariations(
+				productId_paginationCancel,
+				buildVariationsFromAttributes( paginatedProductAttributes )
 			);
 		} );
 
@@ -356,6 +396,73 @@ test.describe( 'Update variations', { tag: tags.GUTENBERG }, () => {
 			await expect(
 				page.locator( '.woocommerce_variation' )
 			).toHaveCount( 0 );
+		} );
+	} );
+
+	test( 'dismissed pagination warning keeps unsaved variation edits on the current page', async ( {
+		page,
+	} ) => {
+		await test.step( 'Go to the "Edit product" page.', async () => {
+			await page.goto(
+				`wp-admin/post.php?post=${ productId_paginationCancel }&action=edit#variable_product_options`
+			);
+		} );
+
+		await gotToVariationsTab( page );
+
+		const variationsWrapper = page.locator( '.woocommerce_variations' );
+		const pageSelector = page
+			.locator( '.variations-pagenav .page-selector' )
+			.first();
+
+		await test.step( 'Confirm the first variation page is loaded.', async () => {
+			await expect( variationsWrapper ).toHaveAttribute(
+				'data-page',
+				'1'
+			);
+			await expect( pageSelector ).toHaveValue( '1' );
+		} );
+
+		await test.step( 'Expand the first variation and edit it without saving.', async () => {
+			await page.getByRole( 'link', { name: 'Expand' } ).first().click();
+
+			const firstVariation = page
+				.locator( '.woocommerce_variation' )
+				.first();
+			const unsavedPrice = '42.42';
+			const priceInput = firstVariation.getByRole( 'textbox', {
+				name: 'Regular price',
+			} );
+
+			await priceInput.fill( unsavedPrice );
+			await expect( firstVariation ).toHaveClass(
+				/variation-needs-update/
+			);
+
+			page.once( 'dialog', async ( dialog ) => {
+				expect( dialog.message() ).toContain(
+					'Save changes before changing page?'
+				);
+				await dialog.dismiss();
+			} );
+
+			await page
+				.locator( '.variations-pagenav .next-page' )
+				.first()
+				.click();
+
+			await expect( variationsWrapper ).toHaveAttribute(
+				'data-page',
+				'1'
+			);
+			await expect( pageSelector ).toHaveValue( '1' );
+			await expect( firstVariation ).toHaveClass(
+				/variation-needs-update/
+			);
+			await expect( priceInput ).toHaveValue( unsavedPrice );
+			await expect(
+				page.getByRole( 'button', { name: 'Save changes' } )
+			).toBeEnabled();
 		} );
 	} );
 
