@@ -1,3 +1,4 @@
 Significance: patch
 Type: fix
-Comment: Keep merchants on the current variation page when pagination save warning is dismissed.
+
+Keep merchants on the current variation page, with their unsaved edits intact, when the pagination save warning is dismissed.

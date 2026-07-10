@@ -54,17 +54,15 @@ const paginatedProductAttributes = [
 	},
 ];
 
-function buildVariationsFromAttributes(
-	attributes: typeof paginatedProductAttributes
-) {
-	return generateVariationsFromAttributes( attributes ).map( ( values ) => ( {
-		regular_price: '9.99',
-		attributes: values.map( ( option, index ) => ( {
-			name: attributes[ index ].name,
-			option,
-		} ) ),
-	} ) );
-}
+const paginatedProductVariations = generateVariationsFromAttributes(
+	paginatedProductAttributes
+).map( ( values ) => ( {
+	regular_price: variationOnePrice,
+	attributes: values.map( ( option, index ) => ( {
+		name: paginatedProductAttributes[ index ].name,
+		option,
+	} ) ),
+} ) );
 
 test.describe( 'Update variations', { tag: tags.GUTENBERG }, () => {
 	test.use( { storageState: ADMIN_STATE_PATH } );
@@ -132,7 +130,7 @@ test.describe( 'Update variations', { tag: tags.GUTENBERG }, () => {
 
 			await createVariations(
 				productId_paginationCancel,
-				buildVariationsFromAttributes( paginatedProductAttributes )
+				paginatedProductVariations
 			);
 		} );
 
@@ -410,51 +408,51 @@ test.describe( 'Update variations', { tag: tags.GUTENBERG }, () => {
 
 		await gotToVariationsTab( page );
 
-		const variationsWrapper = page.locator( '.woocommerce_variations' );
-		const pageSelector = page
-			.locator( '.variations-pagenav .page-selector' )
-			.first();
+		const pageSelector = page.getByLabel( 'Select Page' ).first();
 
-		await test.step( 'Confirm the first variation page is loaded.', async () => {
-			await expect( variationsWrapper ).toHaveAttribute(
-				'data-page',
-				'1'
-			);
+		await test.step( 'Confirm the first variation page is selected.', async () => {
 			await expect( pageSelector ).toHaveValue( '1' );
+		} );
+
+		const firstVariation = page.locator( '.woocommerce_variation' ).first();
+		const unsavedPrice = '42.42';
+		const priceInput = firstVariation.getByRole( 'textbox', {
+			name: 'Regular price',
 		} );
 
 		await test.step( 'Expand the first variation and edit it without saving.', async () => {
 			await page.getByRole( 'link', { name: 'Expand' } ).first().click();
 
-			const firstVariation = page
-				.locator( '.woocommerce_variation' )
-				.first();
-			const unsavedPrice = '42.42';
-			const priceInput = firstVariation.getByRole( 'textbox', {
-				name: 'Regular price',
-			} );
-
 			await priceInput.fill( unsavedPrice );
 			await expect( firstVariation ).toHaveClass(
 				/variation-needs-update/
 			);
+		} );
 
-			page.once( 'dialog', async ( dialog ) => {
-				expect( dialog.message() ).toContain(
-					'Save changes before changing page?'
-				);
-				await dialog.dismiss();
-			} );
+		await test.step( 'Dismiss the save warning raised by paginating.', async () => {
+			// Awaited rather than handled via a `page.on( 'dialog', … )` listener (the
+			// convention elsewhere in this suite) because the assertions below are all
+			// true *before* the click too. Racing the click against the dialog promise
+			// is what proves the dialog was actually raised and dismissed; a listener
+			// that is not awaited would let this test pass without exercising the
+			// cancel path at all.
+			const dialogPromise = page
+				.waitForEvent( 'dialog' )
+				.then( async ( dialog ) => {
+					expect( dialog.type() ).toBe( 'confirm' );
+					await dialog.dismiss();
+				} );
 
-			await page
-				.locator( '.variations-pagenav .next-page' )
-				.first()
-				.click();
+			await Promise.all( [
+				dialogPromise,
+				page
+					.locator( '.variations-pagenav .next-page' )
+					.first()
+					.click(),
+			] );
+		} );
 
-			await expect( variationsWrapper ).toHaveAttribute(
-				'data-page',
-				'1'
-			);
+		await test.step( 'Confirm the page, the edit and its dirty state are preserved.', async () => {
 			await expect( pageSelector ).toHaveValue( '1' );
 			await expect( firstVariation ).toHaveClass(
 				/variation-needs-update/

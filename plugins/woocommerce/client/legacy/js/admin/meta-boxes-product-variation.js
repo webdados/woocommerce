@@ -710,6 +710,7 @@ jQuery( function ( $ ) {
 				) {
 					wc_meta_boxes_product_variations_ajax.save_changes();
 				} else {
+					need_update.removeClass( 'variation-needs-update' );
 					return false;
 				}
 			}
@@ -1451,6 +1452,14 @@ jQuery( function ( $ ) {
 	};
 
 	/**
+	 * Whether go_to_page() triggered the current page change.
+	 *
+	 * Server-side mutations call go_to_page() after completion and must refresh
+	 * regardless of the earlier save prompt result.
+	 */
+	var is_programmatic_navigation = false;
+
+	/**
 	 * Product variations pagenav
 	 */
 	var wc_meta_boxes_product_variations_pagenav = {
@@ -1639,7 +1648,16 @@ jQuery( function ( $ ) {
 			qty = qty || 0;
 
 			wc_meta_boxes_product_variations_pagenav.set_paginav( qty );
-			wc_meta_boxes_product_variations_pagenav.set_page( page );
+
+			// set_page() triggers 'change' synchronously, so the flag is only ever
+			// set for the duration of this call.
+			is_programmatic_navigation = true;
+
+			try {
+				wc_meta_boxes_product_variations_pagenav.set_page( page );
+			} finally {
+				is_programmatic_navigation = false;
+			}
 		},
 
 		/**
@@ -1650,11 +1668,22 @@ jQuery( function ( $ ) {
 				wrapper = $( '#variable_product_options' ).find(
 					'.woocommerce_variations'
 				),
+				need_update = wrapper.find( '.variation-needs-update' ),
 				current_page = parseInt( wrapper.attr( 'data-page' ), 10 ) || 1;
 
 			$( '.variations-pagenav .page-selector' ).val( selected );
 
-			if ( ! wc_meta_boxes_product_variations_ajax.check_for_changes() ) {
+			// Always called, so the prompt itself behaves exactly as it always has.
+			// Only the abort below is new.
+			var changes_handled =
+				wc_meta_boxes_product_variations_ajax.check_for_changes();
+
+			// Staying put is only correct when the merchant asked to change page.
+			// go_to_page() navigates after the server state has already changed, so
+			// aborting there would leave deleted or newly linked variations on screen.
+			if ( ! changes_handled && ! is_programmatic_navigation ) {
+				// Restore the dirty state cleared for legacy callers when the prompt is dismissed.
+				need_update.addClass( 'variation-needs-update' );
 				$( '.variations-pagenav .page-selector' ).val( current_page );
 				return;
 			}
