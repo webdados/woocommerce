@@ -153,6 +153,18 @@ class Personalizer {
 	 * @return string The personalized content.
 	 */
 	public function personalize_content( string $content ): string {
+		return $this->personalize_content_part( $content, self::VALUE_CONTEXT_TEXT );
+	}
+
+	/**
+	 * Walk the content and replace personalization tags, reporting the given
+	 * placement context to the value interceptor.
+	 *
+	 * @param string $content The content to personalize.
+	 * @param string $placement One of the VALUE_CONTEXT_* constants for tag values found in this content.
+	 * @return string The personalized content.
+	 */
+	private function personalize_content_part( string $content, string $placement ): string {
 		$content_processor = new HTML_Tag_Processor( $content );
 		while ( $content_processor->next_token() ) {
 			if ( $content_processor->get_token_type() === '#comment' ) {
@@ -164,13 +176,13 @@ class Personalizer {
 				}
 
 				$value = $tag->execute_callback( $this->context, $token['arguments'] );
-				$value = $this->intercept_value( (string) $value, trim( $modifiable_text ), self::VALUE_CONTEXT_TEXT );
+				$value = $this->intercept_value( (string) $value, trim( $modifiable_text ), $placement );
 				$content_processor->replace_token( $value );
 
 			} elseif ( $content_processor->get_token_type() === '#tag' && $content_processor->get_tag() === 'TITLE' ) {
 				// The title tag contains the subject of the email which should be personalized. HTML_Tag_Processor does parse the header tags.
 				$modifiable_text = $content_processor->get_modifiable_text();
-				$title           = $this->personalize_content( $modifiable_text );
+				$title           = $this->personalize_content_part( $modifiable_text, self::VALUE_CONTEXT_TITLE );
 				$content_processor->set_modifiable_text( $title );
 
 			} elseif ( $content_processor->get_token_type() === '#tag' && $content_processor->get_tag() === 'A' && $content_processor->get_attribute( 'data-link-href' ) ) {

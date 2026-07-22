@@ -541,4 +541,34 @@ class Personalizer_Test extends \Email_Editor_Integration_Test_Case {
 		$this->assertSame( $html_content, $this->personalizer->personalize_content( $html_content ) );
 		$this->assertSame( 0, $calls );
 	}
+
+	/**
+	 * Test that the interceptor receives the title context for tags inside <title>
+	 * and the text context for tags in the body.
+	 */
+	public function testValueInterceptorReceivesTitleContext(): void {
+		$this->tags_registry->register(
+			new Personalization_Tag(
+				'first_name',
+				'user-firstname',
+				'User',
+				function ( $context, $args ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- Parameters unused in this test.
+					return 'John';
+				}
+			)
+		);
+
+		$contexts = array();
+		$this->personalizer->set_value_interceptor(
+			function ( string $value, string $source, string $context ) use ( &$contexts ): string { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- The $source parameter is not used in this test.
+				$contexts[] = $context;
+				return $value;
+			}
+		);
+
+		$html_content = '<html><head><title>Hi <!--[user-firstname]-->!</title></head><body><p>Hi <!--[user-firstname]-->!</p></body></html>';
+		$result       = $this->personalizer->personalize_content( $html_content );
+		$this->assertSame( '<html><head><title>Hi John!</title></head><body><p>Hi John!</p></body></html>', $result );
+		$this->assertSame( array( Personalizer::VALUE_CONTEXT_TITLE, Personalizer::VALUE_CONTEXT_TEXT ), $contexts );
+	}
 }
