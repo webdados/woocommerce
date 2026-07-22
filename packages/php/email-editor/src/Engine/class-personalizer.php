@@ -222,6 +222,7 @@ class Personalizer {
 				}
 
 				$value = $tag->execute_callback( $this->context, $token['arguments'] );
+				$value = $this->intercept_value( (string) $value, $href, self::VALUE_CONTEXT_LINK_HREF );
 
 				if ( $value ) {
 					$content_processor->set_attribute( 'href', $value );

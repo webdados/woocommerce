@@ -609,4 +609,38 @@ class Personalizer_Test extends \Email_Editor_Integration_Test_Case {
 			$calls
 		);
 	}
+
+	/**
+	 * Test that the interceptor receives the resolved value, the raw href source,
+	 * and the link-href context for a plain anchor with an embedded tag.
+	 */
+	public function testValueInterceptorForPlainHrefTag(): void {
+		$this->tags_registry->register(
+			new Personalization_Tag(
+				'Store URL',
+				'woocommerce/store-url',
+				'Store',
+				function ( $context, $args ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- Parameters unused in this test.
+					return 'https://example.com/store';
+				}
+			)
+		);
+
+		$calls = array();
+		$this->personalizer->set_value_interceptor(
+			function ( string $value, string $source, string $context ) use ( &$calls ): string {
+				$calls[] = array( $value, $source, $context );
+				return 'https://intercepted.example.com';
+			}
+		);
+
+		$html_content = '<a href="http://[woocommerce/store-url]">Click here</a>';
+		$this->assertSame( '<a href="https://intercepted.example.com">Click here</a>', $this->personalizer->personalize_content( $html_content ) );
+		$this->assertSame(
+			array(
+				array( 'https://example.com/store', 'http://[woocommerce/store-url]', Personalizer::VALUE_CONTEXT_LINK_HREF ),
+			),
+			$calls
+		);
+	}
 }
