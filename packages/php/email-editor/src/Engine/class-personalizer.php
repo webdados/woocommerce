@@ -224,6 +224,8 @@ class Personalizer {
 		// Create a regex pattern dynamically.
 		$pattern = '/\[' . $escaped_shortcode . '(?:\s+[^\]]+)?\]/';
 
-		return trim( (string) preg_replace( $pattern, $replacement, $content ) );
+		// Escape backslashes and dollar signs so a resolved value like "price=$10"
+		// is inserted literally instead of being parsed as a regex backreference.
+		return trim( (string) preg_replace( $pattern, addcslashes( $replacement, '\\$' ), $content ) );
 	}
 }

@@ -433,4 +433,32 @@ class Personalizer_Test extends \Email_Editor_Integration_Test_Case {
 		$this->assertSame( '', $result['token'] );
 		$this->assertEmpty( $result['arguments'] );
 	}
+
+	/**
+	 * Test that a data-link-href resolving to a URL with regex-replacement special
+	 * characters is written uncorrupted.
+	 *
+	 * The resolved value is used as a preg_replace() replacement string internally,
+	 * where $ and \ are special: an unescaped "$10" or "\1" is parsed as a
+	 * backreference and, with no matching capture group, silently resolves to an
+	 * empty string. esc_url() strips the backslash itself from the href, so the
+	 * backslash case is asserted via the digit that survives it: "ref=\1" must
+	 * come out as "ref=1" (escaped correctly) rather than "ref=" (corrupted).
+	 */
+	public function testDataLinkHrefValueWithRegexSpecialCharsIsInsertedLiterally(): void {
+		$this->tags_registry->register(
+			new Personalization_Tag(
+				'Deal URL',
+				'woocommerce/deal-url',
+				'Store',
+				function ( $context, $args ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- Parameters unused in this test.
+					return 'https://example.com/deal?price=$10&ref=\\1';
+				}
+			)
+		);
+
+		$html_content = '<a data-link-href="[woocommerce/deal-url]" href="#">Deal</a>';
+		// Note: WordPress encodes & as &#038; in URLs.
+		$this->assertStringContainsString( 'href="https://example.com/deal?price=$10&#038;ref=1"', $this->personalizer->personalize_content( $html_content ) );
+	}
 }
