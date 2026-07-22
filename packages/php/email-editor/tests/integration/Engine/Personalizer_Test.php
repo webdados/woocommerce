@@ -571,4 +571,42 @@ class Personalizer_Test extends \Email_Editor_Integration_Test_Case {
 		$this->assertSame( '<html><head><title>Hi John!</title></head><body><p>Hi John!</p></body></html>', $result );
 		$this->assertSame( array( Personalizer::VALUE_CONTEXT_TITLE, Personalizer::VALUE_CONTEXT_TEXT ), $contexts );
 	}
+
+	/**
+	 * Test that the interceptor receives the fully resolved href, the raw
+	 * data-link-href source, and the link-href context, and that its return value
+	 * is written as the href.
+	 */
+	public function testValueInterceptorForDataLinkHref(): void {
+		$this->tags_registry->register(
+			new Personalization_Tag(
+				'Store URL',
+				'woocommerce/store-url',
+				'Store',
+				function ( $context, $args ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- Parameters unused in this test.
+					return 'https://example.com/store';
+				}
+			)
+		);
+
+		$calls = array();
+		$this->personalizer->set_value_interceptor(
+			function ( string $value, string $source, string $context ) use ( &$calls ): string {
+				$calls[] = array( $value, $source, $context );
+				return 'https://intercepted.example.com';
+			}
+		);
+
+		$html_content = '<a data-link-href="[woocommerce/store-url]" href="#" contenteditable="true">Click here</a>';
+		$result       = $this->personalizer->personalize_content( $html_content );
+		$this->assertStringContainsString( 'href="https://intercepted.example.com"', $result );
+		$this->assertStringNotContainsString( 'data-link-href', $result );
+		$this->assertStringNotContainsString( 'contenteditable', $result );
+		$this->assertSame(
+			array(
+				array( 'https://example.com/store', '[woocommerce/store-url]', Personalizer::VALUE_CONTEXT_LINK_HREF ),
+			),
+			$calls
+		);
+	}
 }
