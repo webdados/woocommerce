@@ -24,6 +24,21 @@ class Personalizer {
 	private const TAG_NAME_PATTERN = '[a-zA-Z0-9\-\/]+';
 
 	/**
+	 * Value-interceptor context: the value replaces a personalization tag in body content.
+	 */
+	public const VALUE_CONTEXT_TEXT = 'text';
+
+	/**
+	 * Value-interceptor context: the value replaces a personalization tag inside the <title> element.
+	 */
+	public const VALUE_CONTEXT_TITLE = 'title';
+
+	/**
+	 * Value-interceptor context: the value is written into an anchor href attribute.
+	 */
+	public const VALUE_CONTEXT_LINK_HREF = 'link-href';
+
+	/**
 	 * Personalization tags registry.
 	 *
 	 * @var Personalization_Tags_Registry
@@ -46,6 +61,14 @@ class Personalizer {
 	 * @var array<string, mixed>
 	 */
 	private array $context;
+
+	/**
+	 * Optional callback intercepting each resolved personalization tag value before
+	 * it is written into the content. Null means values are written unchanged.
+	 *
+	 * @var callable(string, string, string): string|null
+	 */
+	private $value_interceptor = null;
 
 	/**
 	 * Class constructor with required dependencies.
@@ -89,6 +112,41 @@ class Personalizer {
 	}
 
 	/**
+	 * Set a callback intercepting each resolved personalization tag value before it is written.
+	 *
+	 * The interceptor receives the resolved value, the raw source text being replaced
+	 * (the trimmed tag token including arguments, or the raw href attribute value),
+	 * and one of the VALUE_CONTEXT_* constants describing where the value lands.
+	 * Its return value is written instead of the resolved value. This allows consumers
+	 * (e.g. bulk-sending integrations) to substitute placeholders for values while
+	 * recording the values externally.
+	 *
+	 * The interceptor persists until cleared by passing null, mirroring set_context().
+	 *
+	 * @param callable|null $interceptor The interceptor callback or null to clear. The callback receives
+	 *                                    the resolved value, the raw source token, and a VALUE_CONTEXT_* constant.
+	 * @return void
+	 */
+	public function set_value_interceptor( ?callable $interceptor ): void {
+		$this->value_interceptor = $interceptor;
+	}
+
+	/**
+	 * Run a resolved value through the registered interceptor, if any.
+	 *
+	 * @param string $value The resolved personalization tag value about to be written.
+	 * @param string $source The raw source text being replaced.
+	 * @param string $context One of the VALUE_CONTEXT_* constants.
+	 * @return string The value to write.
+	 */
+	private function intercept_value( string $value, string $source, string $context ): string {
+		if ( null === $this->value_interceptor ) {
+			return $value;
+		}
+		return (string) call_user_func( $this->value_interceptor, $value, $source, $context );
+	}
+
+	/**
 	 * Personalize the content by replacing the personalization tags with their values.
 	 *
 	 * @param string $content The content to personalize.
@@ -106,6 +164,7 @@ class Personalizer {
 				}
 
 				$value = $tag->execute_callback( $this->context, $token['arguments'] );
+				$value = $this->intercept_value( (string) $value, trim( $modifiable_text ), self::VALUE_CONTEXT_TEXT );
 				$content_processor->replace_token( $value );
 
 			} elseif ( $content_processor->get_token_type() === '#tag' && $content_processor->get_tag() === 'TITLE' ) {

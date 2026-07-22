@@ -461,4 +461,84 @@ class Personalizer_Test extends \Email_Editor_Integration_Test_Case {
 		// Note: WordPress encodes & as &#038; in URLs.
 		$this->assertStringContainsString( 'href="https://example.com/deal?price=$10&#038;ref=1"', $this->personalizer->personalize_content( $html_content ) );
 	}
+
+	/**
+	 * Test that a registered value interceptor receives the resolved value, the raw
+	 * source token, and the text context for a content tag, and that its return
+	 * value is written instead of the resolved value.
+	 */
+	public function testValueInterceptorForContentTag(): void {
+		$this->tags_registry->register(
+			new Personalization_Tag(
+				'first_name',
+				'user-firstname',
+				'User',
+				function ( $context, $args ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- The $args parameter is not used in this test.
+					return $context['subscriber_name'] ?? 'Default Name';
+				}
+			)
+		);
+
+		$calls = array();
+		$this->personalizer->set_value_interceptor(
+			function ( string $value, string $source, string $context ) use ( &$calls ): string {
+				$calls[] = array( $value, $source, $context );
+				return '{placeholder-1}';
+			}
+		);
+
+		$this->personalizer->set_context( array( 'subscriber_name' => 'John' ) );
+		$html_content = '<p>Hello, <!--[user-firstname default="Guest"]-->!</p>';
+		$this->assertSame( '<p>Hello, {placeholder-1}!</p>', $this->personalizer->personalize_content( $html_content ) );
+		$this->assertSame(
+			array(
+				array( 'John', '[user-firstname default="Guest"]', Personalizer::VALUE_CONTEXT_TEXT ),
+			),
+			$calls
+		);
+	}
+
+	/**
+	 * Test that clearing the value interceptor with null restores default behavior.
+	 */
+	public function testValueInterceptorCanBeCleared(): void {
+		$this->tags_registry->register(
+			new Personalization_Tag(
+				'first_name',
+				'user-firstname',
+				'User',
+				function ( $context, $args ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- The $context parameter is not used in this test.
+					return 'John';
+				}
+			)
+		);
+
+		$this->personalizer->set_value_interceptor(
+			function ( string $value, string $source, string $context ): string { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- Parameters unused in this test.
+				return '{placeholder-1}';
+			}
+		);
+		$html_content = '<p>Hello, <!--[user-firstname]-->!</p>';
+		$this->assertSame( '<p>Hello, {placeholder-1}!</p>', $this->personalizer->personalize_content( $html_content ) );
+
+		$this->personalizer->set_value_interceptor( null );
+		$this->assertSame( '<p>Hello, John!</p>', $this->personalizer->personalize_content( $html_content ) );
+	}
+
+	/**
+	 * Test that the interceptor is not called for tokens without a registered tag.
+	 */
+	public function testValueInterceptorNotCalledForUnknownTag(): void {
+		$calls = 0;
+		$this->personalizer->set_value_interceptor(
+			function ( string $value, string $source, string $context ) use ( &$calls ): string { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- Parameters unused in this test.
+				++$calls;
+				return $value;
+			}
+		);
+
+		$html_content = '<p>Hello, <!--[mailpoet/unknown-tag]-->!</p>';
+		$this->assertSame( $html_content, $this->personalizer->personalize_content( $html_content ) );
+		$this->assertSame( 0, $calls );
+	}
 }
