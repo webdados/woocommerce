@@ -66,7 +66,7 @@ class Personalizer {
 	 * Optional callback intercepting each resolved personalization tag value before
 	 * it is written into the content. Null means values are written unchanged.
 	 *
-	 * @var callable(string, string, string): string|null
+	 * @var (callable(string, string, string): string)|null
 	 */
 	private $value_interceptor = null;
 

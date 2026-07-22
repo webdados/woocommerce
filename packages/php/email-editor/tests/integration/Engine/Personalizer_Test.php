@@ -520,6 +520,7 @@ class Personalizer_Test extends \Email_Editor_Integration_Test_Case {
 		);
 		$html_content = '<p>Hello, <!--[user-firstname]-->!</p>';
 		$this->assertSame( '<p>Hello, {placeholder-1}!</p>', $this->personalizer->personalize_content( $html_content ) );
+		$this->assertSame( '<p>Hello, {placeholder-1}!</p>', $this->personalizer->personalize_content( $html_content ) );
 
 		$this->personalizer->set_value_interceptor( null );
 		$this->assertSame( '<p>Hello, John!</p>', $this->personalizer->personalize_content( $html_content ) );
@@ -562,13 +563,13 @@ class Personalizer_Test extends \Email_Editor_Integration_Test_Case {
 		$this->personalizer->set_value_interceptor(
 			function ( string $value, string $source, string $context ) use ( &$contexts ): string { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- The $source parameter is not used in this test.
 				$contexts[] = $context;
-				return $value;
+				return Personalizer::VALUE_CONTEXT_TITLE === $context ? '{title-placeholder}' : $value;
 			}
 		);
 
 		$html_content = '<html><head><title>Hi <!--[user-firstname]-->!</title></head><body><p>Hi <!--[user-firstname]-->!</p></body></html>';
 		$result       = $this->personalizer->personalize_content( $html_content );
-		$this->assertSame( '<html><head><title>Hi John!</title></head><body><p>Hi John!</p></body></html>', $result );
+		$this->assertSame( '<html><head><title>Hi {title-placeholder}!</title></head><body><p>Hi John!</p></body></html>', $result );
 		$this->assertSame( array( Personalizer::VALUE_CONTEXT_TITLE, Personalizer::VALUE_CONTEXT_TEXT ), $contexts );
 	}
 
