@@ -716,6 +716,7 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 		// Performance note: The \WC_Data_Store_WP::update_or_delete_post_meta method is nearly identical, ensure to keep the in sysnc.
 		$product_id = $product->get_id();
 		if ( in_array( $meta_value, array( array(), '' ), true ) && ! in_array( $meta_key, $this->must_exist_meta_keys, true ) ) {
+			// Performance note: skip the DELETE query when the meta key is absent — metadata_exists() is cache-aware and avoids a SQL round-trip.
 			$updated = metadata_exists( 'post', $product_id, $meta_key ) && delete_post_meta( $product_id, $meta_key );
 		} else {
 			$updated = update_post_meta( $product_id, $meta_key, $meta_value );
