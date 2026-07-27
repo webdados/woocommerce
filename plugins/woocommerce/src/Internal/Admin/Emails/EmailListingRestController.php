@@ -3,9 +3,14 @@ declare( strict_types=1 );
 
 namespace Automattic\WooCommerce\Internal\Admin\Emails;
 
+use Automattic\Jetpack\Constants;
 use Automattic\WooCommerce\Internal\RestApiControllerBase;
+use Automattic\WooCommerce\Internal\EmailEditor\Integration;
+use Automattic\WooCommerce\Internal\EmailEditor\WCTransactionalEmails\WCEmailTemplateDivergenceDetector;
+use Automattic\WooCommerce\Internal\EmailEditor\WCTransactionalEmails\WCEmailTemplateSyncRegistry;
 use Automattic\WooCommerce\Internal\EmailEditor\WCTransactionalEmails\WCTransactionalEmails;
 use Automattic\WooCommerce\Internal\EmailEditor\WCTransactionalEmails\WCTransactionalEmailPostsGenerator;
+use Automattic\WooCommerce\Internal\EmailEditor\WCTransactionalEmails\WCTransactionalEmailPostsManager;
 use WP_Error;
 use WP_REST_Request;
 
@@ -20,6 +25,17 @@ class EmailListingRestController extends RestApiControllerBase {
 	 * @var string
 	 */
 	const NONCE_KEY = 'email-listing-nonce';
+
+	/**
+	 * Option storing the WC version for which `woo_email` rewrite rules were last flushed.
+	 *
+	 * Bulk post generation used to flush rewrite rules; with lazy creation the
+	 * flush happens here, once per WC version, so published email post
+	 * permalinks (used by the listing Preview action) keep working.
+	 *
+	 * @var string
+	 */
+	const REWRITE_FLUSH_OPTION = 'woocommerce_email_editor_rewrites_flushed';
 
 	/**
 	 * The root namespace for the JSON REST API endpoints.
@@ -59,18 +75,9 @@ class EmailListingRestController extends RestApiControllerBase {
 	}
 
 	/**
-	 * Perform the initialization.
-	 */
-	public function initialize_template_generator() {
-		$this->email_template_generator->init_default_transactional_emails();
-	}
-
-	/**
 	 * Register the REST API endpoints handled by this controller.
 	 */
 	public function register_routes() {
-		$this->initialize_template_generator();
-
 		register_rest_route(
 			$this->route_namespace,
 			'/' . $this->rest_base . '/recreate-email-post',
@@ -168,16 +175,58 @@ class EmailListingRestController extends RestApiControllerBase {
 	/**
 	 * Handle the POST /settings/email/listing/recreate-email-post.
 	 *
+	 * Returns the post for the given email type, creating an auto-draft with the
+	 * file template content when none exists yet. This follows the WordPress
+	 * Site Editor pattern: posts are only created when the user opens the editor,
+	 * and only become the rendering source once published.
+	 *
 	 * @param WP_REST_Request $request The received request.
 	 * @return array|WP_Error Request response or an error.
 	 */
 	public function recreate_email_post( WP_REST_Request $request ) {
-		$email_id = $request->get_param( 'email_id' );
+		$email_id     = $request->get_param( 'email_id' );
+		$post_manager = WCTransactionalEmailPostsManager::get_instance();
 
-		$generated_post_id = '';
+		$this->maybe_flush_rewrite_rules();
+
+		// A mapped, non-trashed post already exists (the email was saved before).
+		$existing_post = $post_manager->get_email_post( $email_id );
+		if ( $existing_post && 'trash' !== $existing_post->post_status ) {
+			return array(
+				// translators: %s: WooCommerce transactional email ID.
+				'message' => sprintf( __( 'Email post already exists for %s.', 'woocommerce' ), $email_id ),
+				'post_id' => (string) $existing_post->ID,
+			);
+		}
+
+		$email = $post_manager->get_email_by_id( (string) $email_id );
+		if ( ! $email ) {
+			return new WP_Error(
+				'woocommerce_rest_email_post_generation_failed',
+				// translators: %s: WooCommerce transactional email ID.
+				sprintf( __( 'Error generating email post. Email type "%s" is not registered.', 'woocommerce' ), $email_id ),
+				array( 'status' => 500 )
+			);
+		}
+
+		// Reuse an existing editing scratchpad. When it was never edited, refresh
+		// its content in place so it reflects the current file template (the post
+		// ID stays stable — another admin may have the editor open on it).
+		$scratchpad = $this->find_unpublished_post_for_email_type( $email_id );
+		if ( $scratchpad ) {
+			if ( $this->was_never_edited( $scratchpad ) ) {
+				$this->refresh_scratchpad_content( $scratchpad, $email );
+			}
+
+			return array(
+				// translators: %s: WooCommerce transactional email ID.
+				'message' => sprintf( __( 'Email draft already exists for %s.', 'woocommerce' ), $email_id ),
+				'post_id' => (string) $scratchpad->ID,
+			);
+		}
 
 		try {
-			$generated_post_id = $this->email_template_generator->generate_email_template_if_not_exists( $email_id );
+			$post_id = $this->email_template_generator->create_auto_draft( $email );
 		} catch ( \Exception $e ) {
 			return new WP_Error(
 				'woocommerce_rest_email_post_generation_failed',
@@ -187,17 +236,116 @@ class EmailListingRestController extends RestApiControllerBase {
 			);
 		}
 
-		if ( $generated_post_id ) {
-			return array(
-				// translators: %s: WooCommerce transactional email ID.
-				'message' => sprintf( __( 'Email post generated for %s.', 'woocommerce' ), $email_id ),
-				'post_id' => (string) $generated_post_id,
-			);
-		}
-		return new WP_Error(
-			'woocommerce_rest_email_post_generation_error',
-			__( 'Error unable to generate email post.', 'woocommerce' ),
-			array( 'status' => 500 )
+		return array(
+			// translators: %s: WooCommerce transactional email ID.
+			'message' => sprintf( __( 'Email draft created for %s.', 'woocommerce' ), $email_id ),
+			'post_id' => (string) $post_id,
 		);
+	}
+
+	/**
+	 * Find an existing unpublished (auto-draft or draft) post for the given email type.
+	 *
+	 * Draft is included because a core REST autosave can promote an auto-draft
+	 * to draft; without matching it here, every Edit click would create a
+	 * duplicate scratchpad.
+	 *
+	 * @param string $email_id The email type identifier.
+	 * @return \WP_Post|null The post if found, null otherwise.
+	 */
+	private function find_unpublished_post_for_email_type( string $email_id ): ?\WP_Post {
+		$posts = get_posts(
+			array(
+				'post_type'      => Integration::EMAIL_POST_TYPE,
+				'post_status'    => array( 'auto-draft', 'draft' ),
+				'meta_key'       => WCTransactionalEmailPostsManager::EMAIL_TYPE_META_KEY, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Scoped to a handful of unpublished woo_email posts.
+				'meta_value'     => $email_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- Scoped to a handful of unpublished woo_email posts.
+				'posts_per_page' => 1,
+				'orderby'        => 'ID',
+				'order'          => 'DESC',
+			)
+		);
+
+		return $posts[0] ?? null;
+	}
+
+	/**
+	 * Refresh a never-edited scratchpad's content to the current file template.
+	 *
+	 * Keeps the sync meta baseline in step with the new content so a later
+	 * `was_never_edited()` check still recognizes the post as untouched.
+	 *
+	 * @param \WP_Post  $scratchpad The unpublished scratchpad post.
+	 * @param \WC_Email $email      The email instance.
+	 */
+	private function refresh_scratchpad_content( \WP_Post $scratchpad, \WC_Email $email ): void {
+		$canonical = WCTransactionalEmailPostsGenerator::compute_canonical_post_content( $email );
+
+		if ( '' === $canonical || $canonical === $scratchpad->post_content ) {
+			return;
+		}
+
+		$updated = wp_update_post(
+			array(
+				'ID'            => $scratchpad->ID,
+				'post_content'  => $canonical,
+				// Keep wp_update_post() from re-validating the existing
+				// `_wp_page_template` meta against registered templates: the
+				// email template is only registered while the editor package is
+				// bootstrapped, and this is a content-only refresh (an empty
+				// value skips the template handling, leaving the meta as is).
+				'page_template' => '',
+			),
+			true
+		);
+
+		if ( is_wp_error( $updated ) ) {
+			return;
+		}
+
+		$saved_post = get_post( $scratchpad->ID );
+		$saved_body = $saved_post instanceof \WP_Post ? (string) $saved_post->post_content : $canonical;
+
+		if ( null !== WCEmailTemplateSyncRegistry::get_email_sync_config( (string) $email->id ) ) {
+			update_post_meta( $scratchpad->ID, WCEmailTemplateDivergenceDetector::SOURCE_HASH_META_KEY, sha1( $saved_body ) );
+			update_post_meta( $scratchpad->ID, WCEmailTemplateDivergenceDetector::LAST_SYNCED_AT_META_KEY, gmdate( 'Y-m-d H:i:s' ) );
+			update_post_meta( $scratchpad->ID, WCEmailTemplateDivergenceDetector::LAST_CORE_RENDER_META_KEY, $canonical );
+		}
+
+		$scratchpad->post_content = $saved_body;
+	}
+
+	/**
+	 * Check whether an unpublished email post was never edited by the user.
+	 *
+	 * Prefers the sync source hash stamped at creation (content untouched when
+	 * it still matches); falls back to creation/modification timestamps for
+	 * emails that don't participate in template sync.
+	 *
+	 * @param \WP_Post $post The post to check.
+	 * @return bool True when the post content was never edited.
+	 */
+	private function was_never_edited( \WP_Post $post ): bool {
+		$stored_hash = get_post_meta( $post->ID, WCEmailTemplateDivergenceDetector::SOURCE_HASH_META_KEY, true );
+		if ( is_string( $stored_hash ) && 1 === preg_match( '/^[0-9a-f]{40}$/', $stored_hash ) ) {
+			return sha1( (string) $post->post_content ) === $stored_hash;
+		}
+
+		return $post->post_date_gmt === $post->post_modified_gmt;
+	}
+
+	/**
+	 * Flush rewrite rules once per WC version so `woo_email` permalinks work.
+	 *
+	 * Replaces the flush that used to happen during bulk post generation.
+	 */
+	private function maybe_flush_rewrite_rules(): void {
+		$wc_version = (string) Constants::get_constant( 'WC_VERSION' );
+		if ( get_option( self::REWRITE_FLUSH_OPTION ) === $wc_version ) {
+			return;
+		}
+
+		flush_rewrite_rules();
+		update_option( self::REWRITE_FLUSH_OPTION, $wc_version, false );
 	}
 }

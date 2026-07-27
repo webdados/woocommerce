@@ -42,28 +42,16 @@ class WCTransactionalEmails {
 	);
 
 	/**
-	 * Email template generator instance.
-	 *
-	 * @var WCTransactionalEmailPostsGenerator
-	 */
-	private $email_template_generator;
-
-	/**
-	 * Constructor.
-	 *
-	 * Initializes the WCTransactionalEmailPostsGenerator by setting up the template generator.
-	 */
-	public function __construct() {
-		$this->email_template_generator = new WCTransactionalEmailPostsGenerator();
-	}
-
-	/**
 	 * Initialize the class.
+	 *
+	 * Email posts are no longer generated on initialization. They are created
+	 * lazily (as auto-drafts) when a user opens the email editor for a specific
+	 * email type, following the WordPress Site Editor pattern where file
+	 * templates are the source of truth until the user edits and saves.
 	 *
 	 * @internal
 	 */
 	final public function init() {
-		add_action( 'current_screen', array( $this, 'init_email_templates' ), 50 );
 	}
 
 	/**
@@ -102,31 +90,5 @@ class WCTransactionalEmails {
 		 * @since 9.9.0
 		 */
 		return apply_filters( 'woocommerce_transactional_emails_for_block_editor', $emails );
-	}
-
-	/**
-	 * Initialize email templates on WooCommerce admin pages.
-	 */
-	public function init_email_templates() {
-		if ( ! function_exists( 'wc_get_screen_ids' ) ) {
-			return;
-		}
-
-		$screen = get_current_screen();
-
-		$wc_screen_ids = array_merge(
-			wc_get_screen_ids(),
-			array(
-				'woocommerce_page_wc-admin',
-				'edit-woo_email',
-			)
-		);
-
-		if ( ! $screen || ! in_array( $screen->id, $wc_screen_ids, true ) ) {
-			return;
-		}
-
-		// run only on WooCommerce admin pages.
-		$this->email_template_generator->initialize();
 	}
 }

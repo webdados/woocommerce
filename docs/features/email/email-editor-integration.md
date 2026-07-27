@@ -124,11 +124,11 @@ add_filter( 'woocommerce_transactional_emails_for_block_editor', 'your_plugin_re
 
 **Note:** For third-party extensions, WooCommerce will not create an email post unless you opt-in using the `woocommerce_transactional_emails_for_block_editor` filter.
 
-**Development tip:** WooCommerce caches email post-generation with a transient. When testing or developing, delete the transient `wc_email_editor_initial_templates_generated` to force post-generation.
+**Note:** Email posts are created lazily: until the user edits and saves an email, no post exists and the email renders directly from the file template. An auto-draft post is created when the user opens the email in the editor, and it becomes the rendering source once saved (published).
 
-### Customizing email template post generation
+### Customizing email template post creation
 
-You can modify the email template post data before it's created using the `woocommerce_email_content_post_data` filter. This allows you to customize the post title, content, meta, or any other post data during template generation.
+You can modify the email post data before it's created using the `woocommerce_email_content_post_data` filter. This allows you to customize the post title, content, meta, or any other post data when the post is created (that is, when the user first opens the email in the editor). The filtered content is also what renders when no saved post exists yet. Note that `post_status` is system-owned and a value returned by the filter is ignored: posts are created as `auto-draft` and only become the rendering source when published.
 
 **Filter details:**
 

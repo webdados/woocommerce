@@ -149,6 +149,7 @@ class Integration {
 		add_action( 'woocommerce_email_editor_send_preview_email_after_wp_mail', array( $this, 'send_preview_email_after_wp_mail' ), 10 );
 		add_filter( 'woocommerce_email_editor_send_preview_email_subject', array( $this, 'update_email_subject_for_send_preview_email' ), 10, 2 );
 		add_action( 'rest_api_init', array( $this->email_api_controller, 'register_routes' ) );
+		add_action( 'transition_post_status', array( $this, 'save_email_mapping_on_publish' ), 10, 3 );
 		// Priority 11 ensures the email editor's `init` bootstrap (default priority 10)
 		// has registered the `woo_email` post type before we register meta against it.
 		add_action( 'init', array( WCEmailTemplateDivergenceDetector::class, 'register_meta' ), 11 );
@@ -268,7 +269,47 @@ class Integration {
 			return;
 		}
 
-		$post_manager->delete_email_template( $email_type );
+		// Only clear the mapping when it points at the post being deleted —
+		// the email type can also resolve for unpublished scratchpad posts
+		// whose type maps to a different (live) post.
+		$post_manager->delete_email_template( $email_type, (int) $post_id );
+	}
+
+	/**
+	 * Save the email type → post ID mapping when a `woo_email` post is published.
+	 *
+	 * Lazily created posts (auto-drafts) carry only the `_wc_email_type` meta;
+	 * the mapping that makes a post the rendering source for its email type is
+	 * written here, on the first transition to `publish`. Until then the file
+	 * template remains the source of truth.
+	 *
+	 * @param string   $new_status New post status.
+	 * @param string   $old_status Old post status.
+	 * @param \WP_Post $post       Post object.
+	 */
+	public function save_email_mapping_on_publish( $new_status, $old_status, $post ): void {
+		if ( ! $post instanceof \WP_Post || self::EMAIL_POST_TYPE !== $post->post_type ) {
+			return;
+		}
+
+		if ( 'publish' !== $new_status || 'publish' === $old_status ) {
+			return;
+		}
+
+		$email_type = get_post_meta( $post->ID, WCTransactionalEmailPostsManager::EMAIL_TYPE_META_KEY, true );
+		if ( empty( $email_type ) || ! is_string( $email_type ) ) {
+			return;
+		}
+
+		$post_manager = WCTransactionalEmailPostsManager::get_instance();
+
+		// Only map registered email types — the meta could carry an arbitrary
+		// string on imported or programmatically created posts.
+		if ( ! $post_manager->get_email_by_id( $email_type ) ) {
+			return;
+		}
+
+		$post_manager->save_email_template_post_id( $email_type, $post->ID );
 	}
 
 	/**
