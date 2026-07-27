@@ -102,6 +102,11 @@ class Renderer {
 	/**
 	 * Renders the email template
 	 *
+	 * A synthetic post (`ID === 0`) is supported for rendering content that has
+	 * no DB record (e.g. file-based templates): the content is read from the
+	 * post object itself and no queries are made for it. Synthetic posts have
+	 * no `_wp_page_template` meta, so callers must pass `$template_slug`.
+	 *
 	 * @param \WP_Post $post Post object.
 	 * @param string   $subject Email subject.
 	 * @param string   $pre_header An email preheader or preview text is the short snippet of text that follows the subject line in an inbox. See https://kb.mailpoet.com/article/418-preview-text.

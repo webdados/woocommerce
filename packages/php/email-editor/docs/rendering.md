@@ -118,6 +118,36 @@ $html_content = $rendered_email['html'];
 $text_content = $rendered_email['text'];
 ```
 
+#### Rendering without a saved post (synthetic posts)
+
+The renderer can render content that has no database record. Pass a `WP_Post` constructed in memory with `ID => 0` — the content is read from the post object itself and no database queries are made for it. WooCommerce uses this to render transactional emails directly from file-based templates until the user customizes them.
+
+Two things to keep in mind for synthetic posts:
+
+-   Always pass `$template_slug` explicitly. A synthetic post has no `_wp_page_template` meta, so without the argument the renderer falls back to the blank `email-general` template.
+-   The `ID` must be `0`. That value is the renderer's signal to populate the rendering globals and the `core/post-content` block from the post object instead of querying the database.
+
+```php
+$synthetic_post = new \WP_Post(
+    (object) array(
+        'ID'           => 0,
+        'post_type'    => 'my_email_post_type',
+        'post_status'  => 'publish',
+        'post_content' => $block_markup,
+        'post_title'   => 'Order Confirmation',
+    )
+);
+
+$rendered_email = $renderer->render(
+    $synthetic_post,
+    'Order Confirmation',
+    'Your order has been confirmed',
+    'en',
+    '',
+    'my-email-template-slug' // Required: synthetic posts carry no template meta.
+);
+```
+
 ### Content_Renderer
 
 The `Automattic\WooCommerce\EmailEditor\Engine\Renderer\ContentRenderer\Content_Renderer` class is responsible for rendering only the HTML of block template content and a post. The block template has to contain a `core/post-content` block.
