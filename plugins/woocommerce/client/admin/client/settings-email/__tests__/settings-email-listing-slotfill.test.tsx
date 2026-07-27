@@ -43,6 +43,13 @@ jest.mock( '../settings-email-listing-listview', () => ( {
 	ListView: () => <div data-testid="listview" />,
 } ) );
 
+// The slotfill imports `recreateEmailPostRequest` from the data module, which
+// transitively pulls in `@wordpress/core-data`; mock it out — these tests only
+// exercise the Tracks instrumentation and the payload normalization.
+jest.mock( '../settings-email-listing-data', () => ( {
+	recreateEmailPostRequest: jest.fn(),
+} ) );
+
 const baseEmail: EmailType = {
 	id: 'new-order',
 	post_id: '123',
@@ -80,6 +87,7 @@ describe( 'EmailListingFill — list-page Tracks instrumentation', () => {
 			<EmailListingFill
 				emailTypes={ [ baseEmail, eligibleEmail ] }
 				editTemplateUrl={ null }
+				emailTemplateId={ null }
 			/>
 		);
 
@@ -99,6 +107,7 @@ describe( 'EmailListingFill — list-page Tracks instrumentation', () => {
 			<EmailListingFill
 				emailTypes={ [ eligibleEmail ] }
 				editTemplateUrl={ null }
+				emailTemplateId={ null }
 			/>
 		);
 		unmount();
@@ -106,6 +115,7 @@ describe( 'EmailListingFill — list-page Tracks instrumentation', () => {
 			<EmailListingFill
 				emailTypes={ [ eligibleEmail ] }
 				editTemplateUrl={ null }
+				emailTemplateId={ null }
 			/>
 		);
 
@@ -124,6 +134,7 @@ describe( 'EmailListingFill — list-page Tracks instrumentation', () => {
 				<EmailListingFill
 					emailTypes={ [ eligibleEmail ] }
 					editTemplateUrl={ null }
+					emailTemplateId={ null }
 				/>
 			);
 
@@ -138,6 +149,7 @@ describe( 'EmailListingFill — list-page Tracks instrumentation', () => {
 			<EmailListingFill
 				emailTypes={ [ baseEmail, baseEmail ] }
 				editTemplateUrl={ null }
+				emailTemplateId={ null }
 			/>
 		);
 
@@ -204,6 +216,7 @@ describe( 'normalizeEmailTypePayload — regression for eligible_count=0', () =>
 			<EmailListingFill
 				emailTypes={ [ rawAsEmailType ] }
 				editTemplateUrl={ null }
+				emailTemplateId={ null }
 			/>
 		);
 
@@ -232,6 +245,7 @@ describe( 'normalizeEmailTypePayload — regression for eligible_count=0', () =>
 			<EmailListingFill
 				emailTypes={ [ normalized ] }
 				editTemplateUrl={ null }
+				emailTemplateId={ null }
 			/>
 		);
 

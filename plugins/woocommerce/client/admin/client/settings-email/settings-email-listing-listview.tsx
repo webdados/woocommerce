@@ -1,9 +1,9 @@
 /**
  * External dependencies
  */
-import { useState, useMemo } from '@wordpress/element';
+import { useState, useMemo, useEffect } from '@wordpress/element';
 import { pencil, external } from '@wordpress/icons';
-import { Icon } from '@wordpress/components';
+import { Icon, Notice, Spinner } from '@wordpress/components';
 import { getAdminLink } from '@woocommerce/settings';
 import { __ } from '@wordpress/i18n';
 // @ts-expect-error - We need to use this /wp see https://developer.wordpress.org/block-editor/reference-guides/packages/packages-dataviews/#dataviews
@@ -47,6 +47,69 @@ const SendTestEmailModalContent = ( {
 			noticeType={ noticeType }
 			onSend={ sendEmail }
 			onCancel={ onClose }
+		/>
+	);
+};
+
+/**
+ * Resolves the post backing the email before showing the send-test form.
+ * With lazy post creation most emails have no post until edited — an
+ * auto-draft with the file template content is created on demand so the test
+ * email matches what customers receive.
+ */
+const LazySendTestEmailModalContent = ( {
+	email,
+	recreateEmailPost,
+	onClose,
+}: {
+	email: EmailType;
+	recreateEmailPost: (
+		emailId: string
+	) => Promise< { post_id: string } | null >;
+	onClose: () => void;
+} ) => {
+	const initialPostId = parseInt( email.post_id, 10 );
+	const [ resolvedPostId, setResolvedPostId ] = useState< number | null >(
+		Number.isFinite( initialPostId ) ? initialPostId : null
+	);
+	const [ hasError, setHasError ] = useState( false );
+
+	useEffect( () => {
+		if ( resolvedPostId !== null ) {
+			return;
+		}
+		void recreateEmailPost( email.id ).then( ( response ) => {
+			const newPostId = parseInt( response?.post_id ?? '', 10 );
+			if ( Number.isFinite( newPostId ) ) {
+				setResolvedPostId( newPostId );
+			} else {
+				setHasError( true );
+			}
+		} );
+		// Runs once on mount — the modal is remounted per row.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [] );
+
+	if ( hasError ) {
+		return (
+			<Notice status="error" isDismissible={ false }>
+				{ __(
+					'Could not prepare the email for sending a test. Please try again.',
+					'woocommerce'
+				) }
+			</Notice>
+		);
+	}
+
+	if ( resolvedPostId === null ) {
+		return <Spinner />;
+	}
+
+	return (
+		<SendTestEmailModalContent
+			postId={ resolvedPostId }
+			emailClassName={ email.email_class_name }
+			onClose={ onClose }
 		/>
 	);
 };
@@ -173,7 +236,7 @@ export const ListView = ( { emailTypes }: { emailTypes: EmailType[] } ) => {
 				label: __( 'Edit', 'woocommerce' ),
 				icon: <Icon icon={ pencil } />,
 				supportsBulk: false,
-				callback: ( items: EmailType[] ) => {
+				callback: async ( items: EmailType[] ) => {
 					const email = items[ 0 ];
 					if ( email.post_id ) {
 						window.location.href = getAdminLink(
@@ -181,11 +244,16 @@ export const ListView = ( { emailTypes }: { emailTypes: EmailType[] } ) => {
 								email.post_id
 							) }&action=edit`
 						);
-					} else {
+						return;
+					}
+					// Lazily create the post (an auto-draft with the file
+					// template content) and open it in the editor.
+					const response = await recreateEmailPost( email.id );
+					if ( response?.post_id ) {
 						window.location.href = getAdminLink(
-							`admin.php?page=wc-settings&tab=email&section=${ encodeURIComponent(
-								email.email_key
-							) }`
+							`post.php?post=${ encodeURIComponent(
+								response.post_id
+							) }&action=edit`
 						);
 					}
 				},
@@ -198,18 +266,18 @@ export const ListView = ( { emailTypes }: { emailTypes: EmailType[] } ) => {
 				callback: ( items: EmailType[] ) => {
 					window.open( items[ 0 ].link );
 				},
-				isEligible: ( item: EmailType ) => !! item.post_id,
+				// The permalink only renders saved content, so previewing is
+				// limited to published posts (unpublished drafts are not what
+				// customers receive; emails without a post render from the
+				// file template and have no permalink).
+				isEligible: ( item: EmailType ) =>
+					!! item.post_id && item.postStatus === 'publish',
 				isPrimary: true,
 			},
 			{
 				id: 'test',
 				label: __( 'Send test email', 'woocommerce' ),
 				supportsBulk: false,
-				// The editor's send_preview_email endpoint renders the
-				// woo_email post, so a numeric post ID is required — rows
-				// without one offer the "Recreate email post" action instead.
-				isEligible: ( item: EmailType ) =>
-					Number.isFinite( parseInt( item.post_id, 10 ) ),
 				modalHeader: __( 'Send a test email', 'woocommerce' ),
 				RenderModal: ( {
 					items,
@@ -218,9 +286,9 @@ export const ListView = ( { emailTypes }: { emailTypes: EmailType[] } ) => {
 					items: EmailType[];
 					closeModal?: () => void;
 				} ) => (
-					<SendTestEmailModalContent
-						postId={ parseInt( items[ 0 ].post_id, 10 ) }
-						emailClassName={ items[ 0 ].email_class_name }
+					<LazySendTestEmailModalContent
+						email={ items[ 0 ] }
+						recreateEmailPost={ recreateEmailPost }
 						onClose={ closeModal ?? ( () => {} ) }
 					/>
 				),
@@ -239,17 +307,6 @@ export const ListView = ( { emailTypes }: { emailTypes: EmailType[] } ) => {
 						items[ 0 ].id,
 						! items[ 0 ].enabled
 					);
-				},
-			},
-			{
-				id: 'recreate-email-post',
-				label: __( 'Recreate email post', 'woocommerce' ),
-				disabled: false,
-				supportsBulk: false,
-				isEligible: ( item: EmailType ) => ! item?.post_id,
-				callback: ( items: EmailType[] ) => {
-					void recreateEmailPost( items[ 0 ].id );
-					return true;
 				},
 			},
 		],

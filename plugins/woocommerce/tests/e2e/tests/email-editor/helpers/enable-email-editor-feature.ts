@@ -50,6 +50,10 @@ export const disableEmailEditor = async ( baseURL: string ) =>
 /**
  * Delete an email post.
  *
+ * Email posts are created lazily (e.g. when opening an email in the editor),
+ * so deleting the post is enough to revert the email to its file template —
+ * a fresh post is created on the next edit.
+ *
  * @param {string} baseURL The base URL.
  * @param {string} pageId  The page ID.
  * @return {Promise<void>}
@@ -64,13 +68,6 @@ export const deleteEmailPost = async ( baseURL: string, pageId: string ) => {
 	} );
 	await apiClient.delete(
 		`${ WP_API_PATH }/woo_email/${ pageId }?force=true`
-	);
-
-	// clear the transient. It will force post regeneration.
-	await deleteOption(
-		request,
-		baseURL,
-		'_transient_wc_email_editor_initial_templates_generated'
 	);
 };
 
