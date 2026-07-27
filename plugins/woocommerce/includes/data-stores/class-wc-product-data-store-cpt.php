@@ -696,6 +696,35 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 	}
 
 	/**
+	 * Update meta data in, or delete it from, the database.
+	 *
+	 * Avoids storing meta when it's either an empty string or empty array.
+	 * Other empty values such as numeric 0 and null should still be stored.
+	 * Data-stores can force meta to exist using `must_exist_meta_keys`.
+	 *
+	 * Note: WordPress `get_metadata` function returns an empty string when meta data does not exist.
+	 *
+	 * @since 11.1.0 Override introduced as lower-risk optimization of the parent method (to limit blast radius).
+	 *
+	 * @param WC_Data $object The WP_Data object (WC_Coupon for coupons, etc).
+	 * @param string  $meta_key Meta key to update.
+	 * @param mixed   $meta_value Value to save.
+	 *
+	 * @return bool True if updated/deleted.
+	 */
+	protected function update_or_delete_post_meta( $object, $meta_key, $meta_value ) {
+		// Performance note: The \WC_Data_Store_WP::update_or_delete_post_meta method is nearly identical, ensure to keep the in sysnc.
+		$object_id = $object->get_id();
+		if ( in_array( $meta_value, array( array(), '' ), true ) && ! in_array( $meta_key, $this->must_exist_meta_keys, true ) ) {
+			$updated = metadata_exists( 'post', $object_id, $meta_key ) && delete_post_meta( $object_id, $meta_key );
+		} else {
+			$updated = update_post_meta( $object_id, $meta_key, $meta_value );
+		}
+
+		return (bool) $updated;
+	}
+
+	/**
 	 * Helper method that updates all the post meta for a product based on it's settings in the WC_Product class.
 	 *
 	 * @param WC_Product $product Product object.
