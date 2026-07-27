@@ -363,6 +363,36 @@ class WC_Product_Data_Store_CPT_Test extends WC_Unit_Test_Case {
 	}
 
 	/**
+	 * @testdox update_version_and_type sets the product_type term when the type changes, skips it when unchanged, and writes _product_version when stale.
+	 */
+	public function test_update_version_and_type_fires_when_type_changes(): void {
+		$store = new class() extends WC_Product_Data_Store_CPT {
+			public function update_version_and_type( &$product ): void { // phpcs:ignore Generic.CodeAnalysis.UselessOverridingMethod.Found, Squiz.Commenting.FunctionComment.Missing
+				parent::update_version_and_type( $product );
+			}
+		};
+
+		$product = new WC_Product_Simple();
+		$product->save();
+		$product_id       = $product->get_id();
+		$external_product = new WC_Product_External( $product_id );
+
+		update_post_meta( $product_id, '_product_version', '1.0.0-stale' );
+
+		$store->update_version_and_type( $external_product );
+
+		$this->assertSame( 'external', get_the_terms( $product_id, 'product_type' )[0]->slug );
+		$this->assertSame( WC_VERSION, get_post_meta( $product_id, '_product_version', true ) );
+
+		// Type is now unchanged — calling again must not alter the term or the version.
+		$store->update_version_and_type( $external_product );
+
+		$this->assertSame( 'external', get_the_terms( $product_id, 'product_type' )[0]->slug );
+
+		$product->delete();
+	}
+
+	/**
 	 * Test update_product_sales updates on the meta-entry.
 	 */
 	public function test_update_product_sales_meta_update(): void {

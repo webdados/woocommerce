@@ -349,8 +349,14 @@ class WC_Product_Variation_Data_Store_CPT extends WC_Product_Data_Store_CPT impl
 	 * @since 3.0.0
 	 */
 	protected function update_version_and_type( &$product ) {
-		wp_set_object_terms( $product->get_id(), '', 'product_type' );
-		update_post_meta( $product->get_id(), '_product_version', Constants::get_constant( 'WC_VERSION' ) );
+		$product_id = $product->get_id();
+		// Skip wp_set_object_terms() when the type is unchanged — it always clears the term cache even on no-op writes.
+		$stored_type_terms = get_the_terms( $product_id, 'product_type' );
+		if ( ! empty( $stored_type_terms ) ) {
+			wp_set_object_terms( $product_id, '', 'product_type' );
+		}
+
+		update_post_meta( $product_id, '_product_version', Constants::get_constant( 'WC_VERSION' ) );
 	}
 
 	/**

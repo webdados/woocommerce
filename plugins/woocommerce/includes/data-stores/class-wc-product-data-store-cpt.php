@@ -1137,11 +1137,17 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 	 * @return void
 	 */
 	protected function update_version_and_type( &$product ) {
-		$old_type = WC_Product_Factory::get_product_type( $product->get_id() );
-		$new_type = $product->get_type();
+		$product_id = $product->get_id();
+		$old_type   = WC_Product_Factory::get_product_type( $product_id );
+		$new_type   = $product->get_type();
 
-		wp_set_object_terms( $product->get_id(), $new_type, 'product_type' );
-		update_post_meta( $product->get_id(), '_product_version', Constants::get_constant( 'WC_VERSION' ) );
+		// Skip wp_set_object_terms() when the type is unchanged — it always clears the term cache even on no-op writes.
+		$stored_type_terms = get_the_terms( $product_id, 'product_type' );
+		if ( $old_type !== $new_type || empty( $stored_type_terms ) || ! is_array( $stored_type_terms ) ) {
+			wp_set_object_terms( $product_id, $new_type, 'product_type' );
+		}
+
+		update_post_meta( $product_id, '_product_version', Constants::get_constant( 'WC_VERSION' ) );
 
 		// Action for the transition.
 		if ( $old_type !== $new_type ) {
