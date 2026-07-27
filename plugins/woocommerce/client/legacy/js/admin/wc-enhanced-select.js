@@ -303,6 +303,30 @@ jQuery( function ( $ ) {
 						};
 
 						display_result( this, select2_args );
+
+						// Keep an already selected option selected when it is clicked
+						// again in the results, so it can only be removed deliberately,
+						// via the remove button of its selection.
+						if ( this.multiple ) {
+							$( this ).on(
+								'select2:unselecting',
+								function ( e ) {
+									var originalEvent =
+										e.params &&
+										e.params.args &&
+										e.params.args.originalEvent;
+
+									if (
+										originalEvent &&
+										$( originalEvent.target ).closest(
+											'.select2-results__option'
+										).length
+									) {
+										e.preventDefault();
+									}
+								}
+							);
+						}
 					} );
 
 				// Ajax Page Search.

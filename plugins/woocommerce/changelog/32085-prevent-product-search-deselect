@@ -1,0 +1,4 @@
+Significance: patch
+Type: fix
+
+Clicking an already selected product in an enhanced product search multi-select (e.g. Linked Products) no longer silently removes it from the selection; selections can only be removed via their remove button.
