@@ -95,6 +95,12 @@ export function SaveButton() {
 /**
  * Injects the save button into the email editor via the wrap-editor filter.
  * Must run before `initializeEditor()`.
+ *
+ * The custom button is only used while the email post is unpublished — its
+ * sole job is to publish the lazily created scratchpad in the background on
+ * the first save. Once the post is published, core's stock save flow takes
+ * over again, restoring the multi-entity save panel ("Are you ready to
+ * save?") when e.g. template changes are pending alongside content changes.
  */
 export function registerWooEmailSaveButton() {
 	addFilter(
@@ -104,10 +110,25 @@ export function registerWooEmailSaveButton() {
 			function EditorWithWooSaveButton(
 				props: Record< string, unknown >
 			) {
+				const postStatus = useSelect(
+					( select ) =>
+						(
+							select( coreDataStore ).getEntityRecord(
+								'postType',
+								props.postType as string,
+								props.postId as string | number
+							) as { status?: string } | undefined
+						 )?.status,
+					[ props.postType, props.postId ]
+				);
+				const isUnpublished = !! postStatus && postStatus !== 'publish';
+
 				return (
 					<EditorComponent
 						{ ...props }
-						customSaveButton={ <SaveButton /> }
+						customSaveButton={
+							isUnpublished ? <SaveButton /> : undefined
+						}
 					/>
 				);
 			}

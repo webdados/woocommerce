@@ -8,7 +8,7 @@ import { store as editorStore } from '@wordpress/editor';
 /**
  * Internal dependencies
  */
-import { SaveButton } from '../save-button';
+import { SaveButton, registerWooEmailSaveButton } from '../save-button';
 
 // ---- @wordpress/data mock -------------------------------------------------
 //
@@ -26,6 +26,9 @@ const state = {
 		key: string | number;
 	}[],
 	currentPostId: 5,
+	// Status of the post entity record as the wrap-editor filter sees it
+	// (null = record not loaded yet).
+	entityRecordStatus: null as string | null,
 };
 
 const mockEditPost = jest.fn();
@@ -46,6 +49,10 @@ const mockStoreSelect = ( store: unknown ) => {
 	}
 	return {
 		__experimentalGetDirtyEntityRecords: () => state.dirtyEntityRecords,
+		getEntityRecord: () =>
+			state.entityRecordStatus
+				? { status: state.entityRecordStatus }
+				: undefined,
 	};
 };
 
@@ -92,6 +99,7 @@ describe( 'SaveButton', () => {
 		state.hasNonPostEntityChanges = false;
 		state.dirtyEntityRecords = [];
 		state.currentPostId = 5;
+		state.entityRecordStatus = null;
 	} );
 
 	it( 'renders a button labeled "Save"', () => {
@@ -176,5 +184,64 @@ describe( 'SaveButton', () => {
 			5,
 			{}
 		);
+	} );
+} );
+
+describe( 'registerWooEmailSaveButton', () => {
+	// The wrap-editor filter must only inject the custom button while the
+	// post is unpublished; published posts keep core's stock save flow
+	// (including the multi-entity save panel).
+	const getWrappedEditor = () => {
+		registerWooEmailSaveButton();
+		const MockEditor = ( {
+			customSaveButton,
+		}: {
+			customSaveButton?: ReactNode;
+		} ) => <div>{ customSaveButton ?? <span>core save flow</span> }</div>;
+
+		const { applyFilters } = require( '@wordpress/hooks' );
+		return applyFilters(
+			'woocommerce_email_editor_wrap_editor_component',
+			MockEditor
+		) as React.ComponentType< Record< string, unknown > >;
+	};
+
+	beforeEach( () => {
+		state.entityRecordStatus = null;
+	} );
+
+	it.each( [ [ 'auto-draft' ], [ 'draft' ] ] )(
+		'injects the custom save button for an unpublished (%s) post',
+		( status ) => {
+			state.entityRecordStatus = status;
+			const Wrapped = getWrappedEditor();
+
+			render( <Wrapped postId={ 5 } postType="woo_email" /> );
+
+			expect(
+				screen.getByRole( 'button', { name: 'Save' } )
+			).toBeInTheDocument();
+		}
+	);
+
+	it( 'keeps the core save flow for a published post', () => {
+		state.entityRecordStatus = 'publish';
+		const Wrapped = getWrappedEditor();
+
+		render( <Wrapped postId={ 5 } postType="woo_email" /> );
+
+		expect( screen.getByText( 'core save flow' ) ).toBeInTheDocument();
+		expect(
+			screen.queryByRole( 'button', { name: 'Save' } )
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'keeps the core save flow while the post record is not loaded yet', () => {
+		state.entityRecordStatus = null;
+		const Wrapped = getWrappedEditor();
+
+		render( <Wrapped postId={ 5 } postType="woo_email" /> );
+
+		expect( screen.getByText( 'core save flow' ) ).toBeInTheDocument();
 	} );
 } );
