@@ -256,8 +256,7 @@ class WC_Data_Store_WP {
 	 * @return bool True if updated/deleted.
 	 */
 	protected function update_or_delete_post_meta( $object, $meta_key, $meta_value ) {
-		// Performance note: The \WC_Product_Data_Store_CPT::update_or_delete_post_meta method is nearly identical, except it includes an additional step.
-		// It calls metadata_exists() before deletion to skip the DELETE query when the meta key is absent. Please update the override if you modify the logic here.
+		// Performance note: see \WC_Product_Data_Store_CPT::update_or_delete_post_meta — keep both in sync.
 		if ( in_array( $meta_value, array( array(), '' ), true ) && ! in_array( $meta_key, $this->must_exist_meta_keys, true ) ) {
 			$updated = delete_post_meta( $object->get_id(), $meta_key );
 		} else {
