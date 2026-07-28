@@ -704,7 +704,7 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 	 *
 	 * Note: WordPress `get_metadata` function returns an empty string when meta data does not exist.
 	 *
-	 * @since 11.1.0 Override introduced as lower-risk optimization of the parent method (to limit blast radius).
+	 * @since 11.1.0
 	 *
 	 * @param WC_Data $product    The WP_Data object (product).
 	 * @param string  $meta_key   Meta key to update.
