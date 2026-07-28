@@ -102,10 +102,8 @@ class Renderer {
 	/**
 	 * Renders the email template
 	 *
-	 * A synthetic post (`ID === 0`) is supported for rendering content that has
-	 * no DB record (e.g. file-based templates): the content is read from the
-	 * post object itself and no queries are made for it. Synthetic posts have
-	 * no `_wp_page_template` meta, so callers must pass `$template_slug`.
+	 * To render block markup that has no backing post (e.g. file-based
+	 * templates), use {@see self::render_from_content()} instead.
 	 *
 	 * @param \WP_Post $post Post object.
 	 * @param string   $subject Email subject.
@@ -186,6 +184,37 @@ class Renderer {
 		} finally {
 			$this->content_renderer->restore_rendering_context( $previous_rendering_context );
 		}
+	}
+
+	/**
+	 * Renders block markup that has no backing post.
+	 *
+	 * Use this for content that only exists outside the database, e.g.
+	 * file-based templates that are the rendering source until a user
+	 * customizes them. A synthetic post (ID 0) is built internally, and
+	 * because there is no post to carry a template association, the block
+	 * template slug must always be provided.
+	 *
+	 * @param string $content       Block HTML markup to render.
+	 * @param string $template_slug Block template slug to render the content with.
+	 * @param string $subject Email subject.
+	 * @param string $pre_header An email preheader or preview text is the short snippet of text that follows the subject line in an inbox. See https://kb.mailpoet.com/article/418-preview-text.
+	 * @param string $language Email language.
+	 * @param string $meta_robots Optional string. Can be left empty for sending, but you can provide a value (e.g. noindex, nofollow) when you want to display email html in a browser.
+	 * @return array
+	 *
+	 * @since 2.15.0
+	 */
+	public function render_from_content( string $content, string $template_slug, string $subject, string $pre_header, string $language = 'en', string $meta_robots = '' ): array {
+		$synthetic_post = new \WP_Post(
+			(object) array(
+				'ID'           => 0,
+				'post_status'  => 'publish',
+				'post_content' => $content,
+			)
+		);
+
+		return $this->render( $synthetic_post, $subject, $pre_header, $language, $meta_robots, $template_slug );
 	}
 
 	/**

@@ -1,4 +1,4 @@
 Significance: minor
 Type: add
 
-Support rendering synthetic posts (WP_Post with ID 0), allowing content without a database record — such as file-based templates — to be rendered. See docs/rendering.md.
+Add Renderer::render_from_content() for rendering block markup that has no backing post, such as file-based templates. See docs/rendering.md.

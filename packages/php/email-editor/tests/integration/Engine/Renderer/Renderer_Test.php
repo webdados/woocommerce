@@ -349,6 +349,35 @@ class Renderer_Test extends \Email_Editor_Integration_Test_Case {
 	}
 
 	/**
+	 * Test it renders block markup without a backing post.
+	 */
+	public function testItRendersFromContentWithoutBackingPost(): void {
+		// @phpstan-ignore-next-line PHPStan is not aware of the register_block_template function's side effects.
+		register_block_template(
+			'renderer-tests//test-email-template-content',
+			array(
+				'title'       => 'Test Email Template',
+				'description' => 'A test email template.',
+				'content'     => '<!-- wp:group --><div class="wp-block-group test-template-class-content"><!-- wp:post-content /--></div><!-- /wp:group -->',
+			)
+		);
+
+		$rendered = $this->renderer->render_from_content(
+			'<!-- wp:paragraph --><p>Content without a post!</p><!-- /wp:paragraph -->',
+			'test-email-template-content',
+			'Subject',
+			'Preheader content'
+		);
+
+		$this->assertStringContainsString( 'test-template-class-content', $rendered['html'] );
+		$this->assertStringContainsString( 'Content without a post!', $rendered['html'] );
+		$this->assertStringContainsString( 'Subject', $rendered['html'] );
+		$this->assertStringContainsString( 'Content without a post!', $rendered['text'] );
+		// The fixture post created in setUp must not leak into the output.
+		$this->assertStringNotContainsString( 'Hello!', $rendered['html'] );
+	}
+
+	/**
 	 * Test that rendering preserves personalization tags.
 	 */
 	public function testItPreservesPersonalizationTags(): void {

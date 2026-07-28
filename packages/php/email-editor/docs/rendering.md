@@ -118,35 +118,44 @@ $html_content = $rendered_email['html'];
 $text_content = $rendered_email['text'];
 ```
 
-#### Rendering without a saved post (synthetic posts)
+#### Rendering without a saved post
 
-The renderer can render content that has no database record. Pass a `WP_Post` constructed in memory with `ID => 0` — the content is read from the post object itself and no database queries are made for it. WooCommerce uses this to render transactional emails directly from file-based templates until the user customizes them.
-
-Two things to keep in mind for synthetic posts:
-
--   Always pass `$template_slug` explicitly. A synthetic post has no `_wp_page_template` meta, so without the argument the renderer falls back to the blank `email-general` template.
--   The `ID` must be `0`. That value is the renderer's signal to populate the rendering globals and the `core/post-content` block from the post object instead of querying the database.
+Use `render_from_content()` to render block markup that has no database record — for example file-based templates that are the rendering source until a user customizes them (this is how WooCommerce renders its uncustomized transactional emails). The block template slug is a required argument, because without a post there is no `_wp_page_template` meta to derive the template from.
 
 ```php
-$synthetic_post = new \WP_Post(
-    (object) array(
-        'ID'           => 0,
-        'post_type'    => 'my_email_post_type',
-        'post_status'  => 'publish',
-        'post_content' => $block_markup,
-        'post_title'   => 'Order Confirmation',
-    )
-);
+/**
+ * Renders block markup that has no backing post.
+ *
+ * @param string $content       Block HTML markup to render.
+ * @param string $template_slug Block template slug to render the content with.
+ * @param string $subject Email subject.
+ * @param string $pre_header An email preheader or preview text.
+ * @param string $language Email language.
+ * @param string $meta_robots Optional meta robots value for browser display.
+ * @return array
+ */
+public function render_from_content(
+    string $content,
+    string $template_slug,
+    string $subject,
+    string $pre_header,
+    string $language = 'en',
+    string $meta_robots = ''
+): array
+```
 
-$rendered_email = $renderer->render(
-    $synthetic_post,
+**Example Usage:**
+
+```php
+$rendered_email = $renderer->render_from_content(
+    $block_markup,
+    'my-email-template-slug',
     'Order Confirmation',
-    'Your order has been confirmed',
-    'en',
-    '',
-    'my-email-template-slug' // Required: synthetic posts carry no template meta.
+    'Your order has been confirmed'
 );
 ```
+
+Internally the renderer wraps the markup in a synthetic `WP_Post` with `ID === 0`; the rendering pipeline treats that ID as "no database record" and reads everything from the post object. Prefer `render_from_content()` over constructing such posts yourself.
 
 ### Content_Renderer
 

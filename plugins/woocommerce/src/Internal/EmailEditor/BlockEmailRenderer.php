@@ -77,36 +77,42 @@ class BlockEmailRenderer {
 		$email_post = $this->get_email_post_by_wc_email( $wc_email );
 
 		// Without a published post, the file template is the source of truth
-		// (WP Site Editor pattern): render from a synthetic post built from it.
-		// Only emails registered for the block editor get the file fallback —
-		// others (e.g. third-party emails that did not opt in via the
-		// `woocommerce_transactional_emails_for_block_editor` filter) keep
-		// rendering through the classic pipeline, matching the pre-lazy-creation
-		// boundary where only registered emails ever had a generated post.
+		// (WP Site Editor pattern). Only emails registered for the block editor
+		// get the file fallback — others (e.g. third-party emails that did not
+		// opt in via the `woocommerce_transactional_emails_for_block_editor`
+		// filter) keep rendering through the classic pipeline, matching the
+		// pre-lazy-creation boundary where only registered emails ever had a
+		// generated post.
+		$file_template_content = '';
 		if ( ! $email_post ) {
 			if ( ! in_array( $wc_email->id, WCTransactionalEmails::get_transactional_emails(), true ) ) {
 				return null;
 			}
 
-			$email_post = $this->build_post_from_file_template( $wc_email );
-			if ( ! $email_post ) {
+			// The canonical content (including the `woocommerce_email_content_post_data`
+			// filter) is used, so what is sent matches both the editor scratchpad
+			// content and the hash the cleanup migration compared against before
+			// deleting a post.
+			$file_template_content = WCTransactionalEmailPostsGenerator::compute_canonical_post_content( $wc_email );
+			if ( '' === $file_template_content ) {
 				return null;
 			}
 		}
 
 		$woo_content = $this->woo_content_processor->get_woo_content( $wc_email );
-		return $this->render_block_email( $email_post, $woo_content, $wc_email );
+		return $this->render_block_email( $email_post, $file_template_content, $woo_content, $wc_email );
 	}
 
 	/**
 	 * Maybe render block-based email content.
 	 *
-	 * @param \WP_Post  $email_post Email post.
-	 * @param string    $woo_content WooCommerce email content.
-	 * @param \WC_Email $wc_email WooCommerce email.
+	 * @param \WP_Post|null $email_post Email post, or null to render from the file template content.
+	 * @param string        $file_template_content File template block markup, used when no post is given.
+	 * @param string        $woo_content WooCommerce email content.
+	 * @param \WC_Email     $wc_email WooCommerce email.
 	 * @return string Modified email content
 	 */
-	private function render_block_email( \WP_Post $email_post, string $woo_content, \WC_Email $wc_email ): ?string {
+	private function render_block_email( ?\WP_Post $email_post, string $file_template_content, string $woo_content, \WC_Email $wc_email ): ?string {
 		try {
 			// Set email context before rendering so blocks can access it.
 			$filter_callback = function ( $context = array() ) use ( $wc_email ) {
@@ -117,11 +123,13 @@ class BlockEmailRenderer {
 			// We will get subject from $email_post after we add it to the editor.
 			$subject   = $wc_email->get_subject();
 			$preheader = $wc_email->get_preheader();
-			// A synthetic post has no `_wp_page_template` meta, so the template slug must be passed explicitly.
-			$template_slug       = 0 === $email_post->ID ? ( new WooEmailTemplate() )->get_slug() : '';
-			$rendered_email_data = $this->renderer->render( $email_post, $subject, $preheader, 'en', '', $template_slug );
-			$personalized_email  = $this->personalizer->personalize_content( $rendered_email_data['html'] );
-			$rendered_email      = str_replace( self::WOO_EMAIL_CONTENT_PLACEHOLDER, $woo_content, $personalized_email );
+
+			$rendered_email_data = $email_post
+				? $this->renderer->render( $email_post, $subject, $preheader, 'en' )
+				: $this->renderer->render_from_content( $file_template_content, ( new WooEmailTemplate() )->get_slug(), $subject, $preheader, 'en' );
+
+			$personalized_email = $this->personalizer->personalize_content( $rendered_email_data['html'] );
+			$rendered_email     = str_replace( self::WOO_EMAIL_CONTENT_PLACEHOLDER, $woo_content, $personalized_email );
 
 			// Remove the filter after rendering to prevent context leakage.
 			remove_filter( 'woocommerce_email_editor_rendering_email_context', $filter_callback );
@@ -156,37 +164,6 @@ class BlockEmailRenderer {
 		}
 
 		return $email_post;
-	}
-
-	/**
-	 * Build a synthetic post from the file-based template for an email type.
-	 *
-	 * Used when no published post exists in the database, allowing rendering
-	 * directly from the file template without a DB record. The content is the
-	 * canonical post content (including the `woocommerce_email_content_post_data`
-	 * filter), so what is sent matches both the editor scratchpad content and
-	 * the hash the cleanup migration compared against before deleting a post.
-	 *
-	 * @param \WC_Email $wc_email WooCommerce email.
-	 * @return \WP_Post|null Synthetic post, or null when no template content is available.
-	 */
-	private function build_post_from_file_template( \WC_Email $wc_email ): ?\WP_Post {
-		$template_html = WCTransactionalEmailPostsGenerator::compute_canonical_post_content( $wc_email );
-
-		if ( '' === $template_html ) {
-			return null;
-		}
-
-		return new \WP_Post(
-			(object) array(
-				'ID'           => 0,
-				'post_type'    => Integration::EMAIL_POST_TYPE,
-				'post_status'  => 'publish',
-				'post_content' => $template_html,
-				'post_title'   => $wc_email->get_title(),
-				'post_name'    => $wc_email->id,
-			)
-		);
 	}
 
 	/**
